@@ -17,18 +17,17 @@
 
 typedef struct ent_s ent_t;
 typedef struct sprite_s sprite_t;
+typedef struct sprite_slice_s sprite_slice_t;
 
 typedef struct sub_texture_s {
-    int tag;
-    int originX, originY;
-    int positionX, positionY;
-    int sourceWidth, sourceHeight;
+    int   tag;
+    int   originX, originY;
+    int   positionX, positionY;
+    int   sourceWidth, sourceHeight;
+    int   anim_seq;
+    int   anim_index;
+    int   anim_dur;
     float scale;
-    int padding;
-    bool trimmed;
-    int trimRecX, trimRecY, trimRecWidth, trimRecHeight;
-    int colliderType;
-    int colliderPosX, colliderPosY, colliderSizeX, colliderSizeY;
 } sub_texture_t;
 
 typedef struct{
@@ -55,17 +54,12 @@ typedef struct{
 }anim_t;
 
 typedef struct{
-  int                num_seq, cur_seq;
-  anim_t             *anims[ANIM_SEQ_ALL];
-  sprite_t           *sequences[ANIM_SEQ_ALL][MAX_ANIM_FRAMES];
+  AnimType         type;
+  int              num_seq, cur_seq;
+  anim_t           *anims[ANIM_SEQ_ALL];
+  sprite_slice_t   *sequences[ANIM_SEQ_ALL][MAX_ANIM_FRAMES];
 }anim_player_t;
 
-typedef struct{
-  AnimSequence seq;
-  int          indexes[4];
-}anim_set_d;
-
-extern anim_set_d DEF_ANIM[ANIM_SEQ_ALL];
 typedef struct{
   int     duration;
   int     elapsed;
@@ -152,7 +146,7 @@ typedef enum{
   LAYER_DONE
 }RenderLayer;
 
-typedef struct {
+struct sprite_slice_s{
   int       id;
   int       sequence_index;
   Vector2   center;
@@ -160,7 +154,7 @@ typedef struct {
   Vector2   offset;
   float     scale;
   Color     color;
-} sprite_slice_t;
+};
 
 typedef struct{
   int             num_sprites;
@@ -175,7 +169,7 @@ typedef enum{
   SHEET_CHAR,
   SHEET_ALL
 }SheetID;
-
+static sub_texture_t* TEXTURES[SHEET_ALL];
 static sprite_sheet_data_t SHEETS[SHEET_ALL];
 void SpriteLoadSubTextures(sub_texture_t* data, SheetID id, int sheet_cap);
 
@@ -187,7 +181,7 @@ struct sprite_s{
   AnimSequence      state;
   anim_player_t     *anim;
   Texture2D         *sheet;
-  sprite_slice_t*   slice;
+  sprite_slice_t*   root, *slice;
   bool              is_visible;
   float             rot;
   Vector2           pos, offset, dest;
@@ -198,14 +192,16 @@ struct sprite_s{
 void DrawSlice(sprite_t *spr, Vector2 position,float rot);
 sprite_t* InitSpriteByID(int id, SheetID);
 sprite_t* InitSpriteByIndex(int index, sprite_sheet_data_t* spritesheet);
-sprite_t* InitAnimationByID(CharacterSprite[12], int, SheetID);
+sprite_t* InitAnimationByID(int, int, SheetID);
+sprite_t* InitAnimationVec(int id, SheetID s, int dur);
 bool FreeSprite(sprite_t* s);
 void DrawSprite(sprite_t* s);
 void DrawSpriteAtPos(sprite_t*s , Vector2 pos);
 void SpriteSync(struct ent_s* e, sprite_t *spr);
 bool SpriteSetAnimSequence(sprite_t* spr, AnimSequence s);
 bool SpriteCanChangeState(sprite_t*, AnimSequence old, AnimSequence s);
-sprite_t* SpriteAnimate(sprite_t *spr);
+sprite_slice_t* SpriteAnimate(sprite_t *spr);
+bool SpriteCanAnimateTo(sprite_t *spr, Cell from, Cell to);
 void SpriteAnimateTo(sprite_t *spr, Cell from, Cell to);
 void SpritePreprocessImg(Image *img, Texture2D* out);
 void DrawTextExOutlined(Font font, const char *text, Vector2 pos, float fontSize, float spacing, Color textColor, Color outlineColor);

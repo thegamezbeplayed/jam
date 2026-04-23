@@ -59,8 +59,8 @@
 
 #define GRID_U  -1 
 #define GRID_D  1
-#define GRID_L  1000
-#define GRID_R  -1000
+#define GRID_L  -1000
+#define GRID_R  1000
 
 #define HKEY_CELL(c) (hash_key_t){hash_combine_64(\
     hash_64_from_int(c.x), hash_64_from_int(c.y))}

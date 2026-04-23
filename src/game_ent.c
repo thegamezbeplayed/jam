@@ -15,7 +15,7 @@ ent_t* InitEnt(EntityType t){
     return NULL;
 
   e->type = t;
-  e->sprite = InitAnimationByID(def.anims, def.base, SHEET_CHAR);
+  e->sprite = InitAnimationByID(def.base, def.end, SHEET_CHAR);
   e->sprite->owner = e;
   SetState(e,STATE_SPAWN,NULL);
   return e;
@@ -25,7 +25,7 @@ ent_t* InitEntStatic(EntityType t, Tiles r){
   ent_t* e = GameCalloc("InitEnt", 1, sizeof(ent_t));
 
   e->type = t;
-  e->sprite = InitSpriteByID(r, SHEET_TILE);
+  e->sprite = InitAnimationVec(r, SHEET_TILE, 4);
   e->sprite->owner = e;
   e->signals = TILE_SIGNALS[r];
   SetState(e,STATE_SPAWN,NULL);
@@ -136,7 +136,7 @@ TileStatus EntGridStep(ent_t *e, Cell step){
     Cell oldPos = e->pos;
 
 
-    //SpriteAnimateTo(e->base, oldPos, newPos);
+    SpriteAnimateTo(e->sprite, oldPos, newPos);
     //WorldDebugCell(e->pos, YELLOW);
     e->pos = newPos;
     e->old_pos = oldPos;

@@ -99,10 +99,3 @@ void StatEmpty(stat_t* s){
 }
 
 float StatGetRatio(stat_t *self){}
-
-anim_set_d DEF_ANIM[ANIM_SEQ_ALL] = {
-  {ANIM_SEQ_GO_L, {CHAR_LEFT_0, CHAR_LEFT_1, CHAR_LEFT_2}},
-  {ANIM_SEQ_GO_U, {CHAR_UP_0, CHAR_UP_1, CHAR_UP_2}},
-  {ANIM_SEQ_GO_R, {CHAR_RIGHT_0, CHAR_RIGHT_1, CHAR_RIGHT_2}},
-  {ANIM_SEQ_GO_D, {CHAR_DOWN_0, CHAR_DOWN_1, CHAR_DOWN_2}}
-};

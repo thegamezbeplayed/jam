@@ -119,6 +119,12 @@ typedef enum{
 }AnimSequence;
 
 typedef enum{
+  AT_NONE,
+  AT_SPRITE,
+  AT_VEC,
+}AnimType;
+
+typedef enum{
   TILE_VOID = -1,
   TILE_BLANK,    
 
@@ -182,6 +188,7 @@ typedef enum{
   TILE_BORDER,
   TILE_OUT_OF_BOUNDS,
   TILE_ERROR,
+  TILE_TIMING,
   TILE_UNREACHABLE
 }TileStatus;
 

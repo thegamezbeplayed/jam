@@ -7,8 +7,7 @@
 
 typedef struct{
   EntityType      id;
-  CharacterSprite anims[12];
-  CharacterSprite base;
+  CharacterSprite base, end;
 }ent_d;
 
 typedef enum{

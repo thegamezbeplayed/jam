@@ -59,18 +59,16 @@ void AssetRender(void){
 }
 
 void InitResources(){
+  TEXTURES[SHEET_CHAR] = CHAR_SPRITES;
   Image spritesImg = LoadImage(TextFormat("resources/%s",CHAR_IMAGE_PATH)); 
   SHEETS[SHEET_CHAR].sprite_sheet = GameMalloc("",sizeof(Texture2D));
   SpriteLoadSubTextures(CHAR_SPRITES,SHEET_CHAR,CHAR_DONE);
   *SHEETS[SHEET_CHAR].sprite_sheet = LoadTextureFromImage(spritesImg);
 
-
   Image tilesImg = LoadImage(TextFormat("resources/%s",TILE_IMAGE_PATH)); 
   SHEETS[SHEET_TILE].sprite_sheet = GameMalloc("",sizeof(Texture2D));
   SpriteLoadSubTextures(TILE_SPRITES,SHEET_TILE,TILE_DONE);
   *SHEETS[SHEET_TILE].sprite_sheet = LoadTextureFromImage(tilesImg);
-
-
 }
 
 sprite_t* InitSpriteByID(int id, SheetID s){
@@ -82,6 +80,7 @@ sprite_t* InitSpriteByID(int id, SheetID s){
       continue;
 
     spr->slice = data->sprites[i];
+    spr->root = data->sprites[i];
     spr->sheet = data->sprite_sheet;
 
     spr->is_visible = true;
@@ -89,6 +88,22 @@ sprite_t* InitSpriteByID(int id, SheetID s){
   }
 
   return spr;
+
+}
+
+sprite_slice_t* InitSliceByID(int id, SheetID s){
+  sprite_slice_t* spr = GameCalloc("InitSlice", 1, sizeof(sprite_slice_t));
+  sprite_sheet_data_t* data = &SHEETS[s];
+
+  for (int i = 0; i < data->num_sprites; i++){
+    if(data->sprites[i]->id != id)
+      continue;
+
+    spr = data->sprites[i];
+    return spr;
+  }
+
+  return NULL;
 
 }
 
@@ -100,41 +115,62 @@ anim_t* InitAnim(int cap, float speed){
   return a;
 
 }
-anim_player_t* InitAnimations(CharacterSprite set[12], SheetID s, int dur){
+anim_player_t* InitAnimations(int id, int end, SheetID s){
   anim_player_t* a = GameCalloc("InitAnimations", 1, sizeof(anim_player_t));
+  a->type = AT_SPRITE;
+  sub_texture_t* data = TEXTURES[s];
 
-  for (int i = 0; i < ANIM_SEQ_ALL; i++){
-    if(DEF_ANIM[i].seq > ANIM_SEQ_NONE)
-      a->num_seq++;
-    a->anims[i] = InitAnim(4,1);
-    for(int j = 0; j < 4; j++){
+  for (int i = 0; i < ANIM_SEQ_ALL; i++)
+    a->anims[a->num_seq++] = InitAnim(4,1);
 
-      CharacterSprite cindex = DEF_ANIM[i].indexes[j];
-      if(cindex == CHAR_NONE)
-        break;
-      a->anims[i]->frames[j] = cindex;
-      a->anims[i]->num_seq++;
-      sprite_t* spr = InitSpriteByID(cindex, s);
+  for (int i = 0; i < end; i++){
+    int seq = data[i].anim_seq;
 
-      a->sequences[i][j] = spr;
-    }
+    CharacterSprite cindex = data[i].tag;
+    if(cindex == CHAR_NONE)
+      continue;
+    int seq_index = a->anims[seq]->num_seq++;
+    a->anims[seq]->duration = data[i].anim_dur;
+    a->anims[seq]->frames[seq_index] = cindex;
+    sprite_slice_t* spr = InitSliceByID(cindex, s);
+
+    a->sequences[seq][seq_index] = spr;
   }
-
-  int sub = dur / a->num_seq;
-
-  for(int i = 0; i < a->num_seq; i++)
-    a->anims[i]->duration = sub;
 
   return a;
 }
 
-sprite_t* InitAnimationByID(CharacterSprite set[12], int base, SheetID s){
+sprite_t* InitAnimationVec(int id, SheetID s, int dur){
 
-  sprite_t* spr = InitSpriteByID(base, s);
+  sprite_t* spr = InitSpriteByID(id, s);
   if(!spr)
     return NULL;
 
-  spr->anim = InitAnimations(set, s, 12);
+  spr->anim = GameCalloc("InitAnimations", 1, sizeof(anim_player_t));
+  anim_player_t* a = spr->anim;
+  a->type = AT_VEC;
+
+  for (int i = 0; i < ANIM_SEQ_ALL; i++){
+    a->anims[a->num_seq++] = InitAnim(4,1);
+
+    a->anims[i]->duration = dur;
+
+    for (int j = 0; j < 4; j++){
+      a->sequences[i][a->anims[i]->num_seq++] = spr->slice;
+
+    }
+  }
+  return spr;
+
+}
+
+sprite_t* InitAnimationByID(int id, int end, SheetID s){
+
+  sprite_t* spr = InitSpriteByID(id, s);
+  if(!spr)
+    return NULL;
+
+  spr->anim = InitAnimations(id, end, s);
   return spr;
 
 }
@@ -147,14 +183,11 @@ void SpriteSync(ent_t* e, sprite_t *spr){
   spr->pos = CellToVector2(e->pos, CELL_WIDTH);
 
   if(spr->anim){
-    sprite_t* next = SpriteAnimate(spr);
+    sprite_slice_t* next = SpriteAnimate(spr);
     if(!next)
       return;
 
-    next->pos = spr->pos;
-    next->is_visible = true;
-
-    e->sprite = next;
+    e->sprite->slice = next;
   }
 }
 
@@ -163,12 +196,13 @@ void SpriteOnStateChange(sprite_t* spr, AnimSequence old, AnimSequence s){
 
 bool AnimSetSequence(anim_player_t* a, AnimSequence seq){
   anim_t* cur = a->anims[a->cur_seq];
-
+/*
   if(a->cur_seq != ANIM_SEQ_NONE){
   if(!cur || cur->elapsed < cur->duration)
     return false;
 
   }
+  */
   a->cur_seq = seq;
 
   cur = a->anims[seq];
@@ -186,52 +220,54 @@ bool SpriteCanChangeState(sprite_t* spr, AnimSequence old, AnimSequence s){
  if(s == ANIM_SEQ_NONE)
   return true;
 
- return AnimSetSequence(spr->anim, s);
+ return true;
 }
 
 bool SpriteSetState(sprite_t* spr, AnimSequence s){
   if(!SpriteCanChangeState(spr, spr->state, s))
     return false;
 
+  AnimSetSequence(spr->anim, s);
   AnimSequence old = spr->state;
   spr->state = s;
 
+  if(spr->anim && spr->anim->type == AT_SPRITE)
   SpriteOnStateChange(spr,old,s);
 
   return true;
 }
 
-sprite_t* SpriteAnimate(sprite_t *spr){
+sprite_slice_t* SpriteAnimate(sprite_t *spr){
   if(spr->anim == NULL)
-    return spr;
+    return spr->slice;
 
   if(spr->state == ANIM_SEQ_NONE)
-    return spr;
+    return spr->slice;
 
-  anim_t* a = spr->anim->anims[spr->state];
+  int seq = spr->state;
+  anim_t* a = spr->anim->anims[seq];
   a->elapsed++;
   if(a->elapsed >= a->duration){
     a->cur_index++;
+    a->elapsed = 0;
     if(a->on_end_seq)
       a->on_end_seq(spr->owner, spr);
 
-    a->elapsed = 0;
     if(a->cur_index >= a->num_seq){
       a->cur_index = 0;
       if(a->on_complete)
       a->on_complete(spr->owner, spr);
 
 
-      if(SpriteSetState(spr, ANIM_SEQ_NONE))
-        return spr;
+      SpriteSetState(spr, ANIM_SEQ_NONE);
     }
   }
-  sprite_t* cur = spr->anim->sequences[spr->state][a->cur_index];
+  sprite_slice_t* cur = spr->anim->sequences[seq][a->cur_index];
 
   if(cur)
     return cur;
 
-  return spr;
+  return NULL;
 }
 
 void SpriteLerp(ent_t* e, sprite_t* s){
@@ -245,9 +281,42 @@ void SpriteSetOwnerGrid(ent_t* e, sprite_t* s){
 
 }
 
+bool SpriteCanAnimateTo(sprite_t *spr, Cell from, Cell to){
+  Cell dir = cell_card_dir(from, to);
+
+  spr->dest = CellToVector2(to, CELL_WIDTH);
+  int grid_index = IntGridIndex(dir.x, dir.y);
+
+  AnimSequence seq = ANIM_SEQ_NONE; 
+
+  switch(grid_index){
+    case GRID_U:
+      seq = ANIM_SEQ_GO_U;
+      break;
+    case GRID_D:
+      seq = ANIM_SEQ_GO_D;
+      break;
+    case GRID_R:
+      seq = ANIM_SEQ_GO_R;
+      break;
+    case GRID_L: 
+      seq = ANIM_SEQ_GO_L;
+      break;
+    default:
+      break;
+  }
+
+  if(seq == ANIM_SEQ_NONE)
+    return false;
+
+  return SpriteCanChangeState(spr, spr->state, seq);
+
+}
+
 void SpriteAnimateTo(sprite_t *spr, Cell from, Cell to){
   Cell dir = cell_card_dir(from, to);
 
+  spr->dest = CellToVector2(to, CELL_WIDTH);
   int grid_index = IntGridIndex(dir.x, dir.y);
   
   AnimSequence seq = ANIM_SEQ_NONE;
@@ -275,7 +344,6 @@ void SpriteAnimateTo(sprite_t *spr, Cell from, Cell to){
   if(!SpriteSetState(spr, seq))
     return;
 
-  spr->dest = CellToVector2(to, CELL_WIDTH);
   spr->anim->anims[seq]->on_end_seq = SpriteLerp;
   spr->anim->anims[seq]->on_complete = SpriteSetOwnerGrid;
   
