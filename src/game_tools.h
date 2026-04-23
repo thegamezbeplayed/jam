@@ -1,0 +1,709 @@
+#ifndef __GAME_TOOLS__
+#define __GAME_TOOLS__
+#include <float.h>
+#include "game_math.h"
+#include <string.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <time.h>
+#include "game_enum.h"
+#define UID_INVALID ((game_object_uid_i)0)
+#define BAD_INDEX   -1337
+
+#define CLAMPV2(v,a,b) ((v)<(a)?(a):((v)>(b)?(b):(v)))
+#define VEC_UNSET (Vector2){FLT_MAX, FLT_MAX}
+#define EPS 1e-6f
+#define VECTOR2_CENTER_SCREEN   (Vector2){ GetScreenWidth()/2, GetScreenHeight()/2}
+#define VECTOR2_SCREEN   (Vector2){ GetScreenWidth(), GetScreenHeight()}
+#define VECTOR2_ZERO   (Vector2){ 0.0f, 0.0f}
+#define VECTOR2_ONE    (Vector2){ 1.0f, 1.0f }
+#define VECTOR2_UP     (Vector2){ 0.0f, -1.0f }
+#define VECTOR2_DOWN   (Vector2){ 0.0f,1.0f }
+#define VECTOR2_LEFT   (Vector2){-1.0f, 0.0f }
+#define VECTOR2_RIGHT  (Vector2){ 1.0f, 0.0f }
+#define Vector2X(x) ((Vector2){ (x), 0.0f })
+#define Vector2XY(x,y) ((Vector2){ (x), (y) })
+#define Vector2Y(y) ((Vector2){ 0.0f, (y) })
+#define Vector2Inc(v,xi,yi) ((Vector2){ (v.x+xi), (v.y+yi) })
+#define RectStart(r1,r2) ((Vector2){(r1.width / 2 - r2.width/2),(r1.height/2 - r2.height/2)})
+#define RectCell(r) (Cell){(r.x),(r.y)}
+#define RectPos(v,r) ((Rectangle){(v.x),(v.y),(r.width),(r.height)})
+#define RectShift(v,r) ((Rectangle){(r.x+v.x),(r.x+v.y),(r.width),(r.height)})
+#define RectSize(r) ((Vector2){(r.width),(r.height)})
+#define RectXY(r) ((Vector2){(r.x),(r.y)})
+#define Rect(px,py,sx,sy) ((Rectangle){ (px),(py), (sx), (sy) })
+#define RECT_CELL(cp,cs) ((Rectangle){ (cp.x),(cp.y), (cs.x), (cs.y) })
+#define RECT_ZERO   (Rectangle){ 0.0f, 0.0f,0.0f,0.0f}
+#define RectArea(r) (int){(r.width)*(r.height)}
+#define RectInner(r,i) (Rectangle){(r.x+i),(r.y+i),(r.width-i),(r.height-i)}
+#define RectInc(r,xi,yi) ((Rectangle){ (r.x+xi), (r.y+yi),(r.width),(r.height) })
+#define RectScale(r,s) ((Rectangle){ (r.x), (r.y),(r.width * s),(r.height * s) })
+#define RECT(x,y,w,h) ((Rectangle){x,y,w,h})
+#define CELL_EMPTY (Cell){0,0}
+#define CELL_UNSET (Cell){-1,-1}
+#define CELL_ONE    (Cell){ 1, 1 }
+#define CELL_UP     (Cell){ 0, -1 }
+#define CELL_DOWN   (Cell){ 0,1 }
+#define CELL_LEFT   (Cell){-1, 0 }
+#define CELL_RIGHT  (Cell){ 1, 0 }
+#define CellScale(c,s) (Cell){ (c.x*s),(c.y*s)}
+#define CellInc(c1,c2) ((Cell){ (c1.x+c2.x), (c1.y+c2.y) })
+#define CELL_NEW(x,y) ((Cell){(x),(y)})
+#define CellMul(c1,c2) (Cell){(c1.x * c2.x),(c1.y * c2.y)}
+#define CellSub(c1,c2) (Cell){(c1.x - c2.x),(c1.y - c2.y)}
+#define CellFlip(c) (Cell){(c.y),(c.x)}
+#define CellBoth(c, x, y) (Cell){(c.x+x),(c.y+y)}
+#define ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
+
+#define GRID_U  -1 
+#define GRID_D  1
+#define GRID_L  1000
+#define GRID_R  -1000
+
+#define HKEY_CELL(c) (hash_key_t){hash_combine_64(\
+    hash_64_from_int(c.x), hash_64_from_int(c.y))}
+
+typedef Rectangle Rect;
+typedef bool (*CompareFn)(int a, int b);
+
+void* GameCalloc(const char* func, int count, size_t size);
+void* GameMalloc(const char* func, size_t size);
+void* GameRealloc(const char* func, void* ptr, size_t new_size);
+void GameFree(const char* func, void* ptr);
+
+static int next_pow2_int(int v) {
+    if (v <= 1)
+        return 1;
+    // Prevent overflow (largest power of 2 that fits in signed int)
+    if (v > (1 << 30))
+        return 0; // or clamp to (1 << 30)
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v++;
+
+    return v;
+}
+
+typedef uint64_t hash_key_t;
+
+typedef struct {
+    hash_key_t key;
+    void* value;
+    uint8_t state; // 0 = empty, 1 = used, 2 = tombstone
+} hash_slot_t;
+
+typedef struct {
+    hash_slot_t* slots;
+    uint32_t cap;
+    uint32_t count;
+} hash_map_t;
+
+typedef struct{
+  hash_map_t* map;
+  uint32_t index;
+}hash_iter_t;
+
+
+static void HashStart(hash_map_t* m, hash_iter_t* it) {
+    it->map = m;
+    it->index = 0;
+}
+
+static hash_slot_t* HashNext(hash_iter_t* it) {
+    hash_map_t* m = it->map;
+
+    while (it->index < m->cap) {
+        hash_slot_t* s = &m->slots[it->index++];
+
+        if (s->state == 1)
+            return s;
+    }
+
+    return NULL;
+}
+void HashInit(hash_map_t* m, uint32_t cap);
+void HashFree(hash_map_t* m);
+void HashClear(hash_map_t* m);
+void* HashGet(hash_map_t* m, hash_key_t key);
+void HashPut(hash_map_t* m, hash_key_t key, void* value);
+void HashRemove(hash_map_t* m, hash_key_t key);
+void HashExpand(hash_map_t* m);
+
+static uint64_t GenerateSeed() {
+    return (uint64_t)time(NULL);
+}
+
+static inline uint64_t Hash64(uint64_t x) {
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53ULL;
+    x ^= x >> 33;
+    return x;
+}
+
+static uint64_t hash_64_from_int(int x)
+{
+    uint64_t z = (uint64_t)x + 0x9E3779B97F4A7C15ULL;
+
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    z = z ^ (z >> 31);
+
+    return z;
+}
+
+static uint32_t hash_float(float f) {
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof(float)); // safe bit copy
+
+    // simple mix (you can improve this)
+    bits ^= bits >> 16;
+    bits *= 0x7feb352d;
+    bits ^= bits >> 15;
+    bits *= 0x846ca68b;
+    bits ^= bits >> 16;
+
+    return bits;
+}
+
+static inline uint64_t hash_combine_64(uint64_t h, uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    return h;
+}
+
+static inline uint32_t hash_combine_32(uint32_t h, uint32_t v)
+{
+    return h ^ (v + 0x9e3779b9 + (h << 6) + (h >> 2));
+}
+
+static uint32_t hash_str_32(const char *str) {
+    uint32_t hash = 5381; // djb2 starting seed
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + (uint32_t)c; // hash * 33 + c
+    return hash;
+}
+
+static inline uint64_t hash_string_64(const char* s) {
+    uint64_t h = 1469598103934665603ULL; // FNV offset basis
+    while (*s) {
+        h ^= (uint8_t)(*s++);
+        h *= 1099511628211ULL; // FNV prime
+    }
+    return h;
+}
+
+typedef uint64_t game_object_uid_i;
+static game_object_uid_i GameObjectMakeUID(const char* cat, int index, int time){
+  uint64_t h = hash_string_64(cat);
+
+  h = hash_combine_64(h, (uint32_t)index);
+  h = hash_combine_64(h, (uint32_t)time);
+
+  return (game_object_uid_i)h;
+}
+
+static bool all_true(int count, bool items[count]){
+  for(int i = 0; i < count; i++)
+    if(!items[i])
+      return false;
+
+  return true;
+}
+
+static int IntGridIndex(int x, int y){
+  return x*1000 + y;
+}
+
+bool SaveCharGrid( int width, int height, char grid[][width],const char *filename);
+static void shuffle_array(void *base, size_t n, size_t size) {
+    char *arr = base;
+    for (size_t i = n - 1; i > 0; i--) {
+        size_t j = rand() % (i + 1);
+        char tmp[size];
+        memcpy(tmp, arr + i * size, size);
+        memcpy(arr + i * size, arr + j * size, size);
+        memcpy(arr + j * size, tmp, size);
+    }
+}
+typedef struct {
+  int x,y;
+} Cell;
+
+typedef struct {
+  Cell*       data;
+  Cell        center;
+  int         count, rad;
+  hash_map_t  map;
+} CellList;
+
+static CellList ShiftCellsInRadius(CellList list, Cell shift){
+  for(int i = 0; i < list.count; i++){
+    list.data[i] = CellInc( list.data[i], shift);
+  }
+
+  list.center = CellInc(list.center, shift);
+
+  return list;
+}
+
+
+static CellList GetCellOne(Cell pos)
+{
+    Cell* points = GameCalloc("GetCellsInRadius", 1, sizeof(Cell));
+
+    int count = 0;
+
+    points[count++] = pos;
+
+    return (CellList){
+      .data   = points,
+        .count  = count,
+        .center = pos 
+    };
+}
+
+
+static CellList GetCellsInRadius(Cell pos, int radius)
+{
+  int r2 = radius * radius;
+  int cx = pos.x;
+  int cy = pos.y;
+
+  CellList list = {
+    .center = pos,
+    .rad = radius
+  };
+  // Worst case allocation (square)
+  int max = (2 * radius + 1) * (2 * radius + 1);
+  Cell* points = GameCalloc("GetCellsInRadius",max, sizeof(Cell));
+
+  HashInit(&list.map, next_pow2_int(max*2));
+  int count = 0;
+
+  for (int y = -radius; y <= radius; y++) {
+    for (int x = -radius; x <= radius; x++) {
+
+      Cell dcell = CELL_NEW(cx+x, cy+y);
+
+      if (x*x + y*y <= r2){
+        hash_key_t key = HKEY_CELL(dcell);
+        points[count++] = dcell;
+        HashPut(&list.map, key, &dcell);
+      }
+    }
+  }
+
+  list.data   = points;
+  list.count  = count;
+
+  return list;
+}
+
+static CellList GetCellsCone(Cell pos, int radius, Cell dir)
+{
+  int cx = pos.x;
+  int cy = pos.y;
+  int max = (2 * radius + 1) * (2 * radius + 1);
+  Cell* points = GameCalloc("GetCellsCone", max, sizeof(Cell));
+
+  CellList list = {
+    .center = pos,
+    .rad = radius
+  };
+
+  HashInit(&list.map, next_pow2_int(max*2));
+
+  int count = 0;
+
+  for (int y = -radius; y <= radius; y++) {
+    for (int x = -radius; x <= radius; x++) {
+
+      // offset from center
+      int dx = x;
+      int dy = y;
+
+      // forward distance (dot product)
+      int forward = dx * dir.x + dy * dir.y;
+
+      if (forward <= 0) continue;         // only forward
+      if (forward > radius) continue;     // limit length
+
+      // perpendicular distance (controls width)
+      int side = abs(dx * dir.y - dy * dir.x);
+
+      if (side > forward) continue;       // cone shape
+
+      Cell dcell = CELL_NEW(cx+x, cy+y);
+
+      hash_key_t key = HKEY_CELL(dcell);
+      points[count++] = dcell;
+      HashPut(&list.map, key, &dcell);
+
+    }
+  }
+
+  list.data   = points;
+  list.count  = count;
+  return list; 
+}
+
+static bool CellListContains(CellList allowed, CellList compare){
+  for (int i = 0; i < compare.count; i++) {
+    hash_key_t other = HKEY_CELL(compare.data[i]);
+
+    if (!HashGet(&allowed.map, other)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static inline int CELL_LEN(Cell c){
+  return isqrt((c.x * c.x) + (c.y*c.y));
+}
+
+// Manhattan distance (or switch to Euclidean easily)
+static inline int cell_distance_euc(Cell a, Cell b) {
+  float dx = a.x - b.x;
+  float dy = a.y - b.y;
+  return sqrtf(dx*dx + dy*dy);
+}
+
+// Manhattan distance (or switch to Euclidean easily)
+static inline int cell_distance_man(Cell a, Cell b) {
+    return abs(a.x - b.x) + abs(a.y - b.y);
+}
+
+static inline Cell cell_dist(Cell c1, Cell c2){
+  return CELL_NEW(abs(c1.x - c2.x),abs(c1.y -c2.y));
+}
+
+static inline Cell random_direction(void){
+  switch(rand()%4){
+    case 0: return CELL_UP;
+    case 1: return CELL_DOWN;
+    case 2: return CELL_LEFT;
+    default: return CELL_RIGHT;
+  }
+}
+
+static inline Cell cell_point_along(Cell c, int min){
+  if(c.x>c.y)
+    c.x = RandRange(min,c.x-1);
+  else
+    c.y = RandRange(min,c.y-1);
+
+  return c;
+}
+
+static inline bool cell_in_bounds(Cell c, Cell bounds){
+  if (c.x >= bounds.x || c.x < 0)
+    return false;
+
+  return (c.y < bounds.y && c.y >= 0);
+}
+
+static inline Cell cell_random_range(int min, int max){
+  return CELL_NEW(RandRange(min,max),RandRange(min,max));
+}
+static inline bool cell_compare(Cell c1,Cell c2){
+  return (c1.x==c2.x && c1.y==c2.y);
+}
+
+static bool cells_linear(Cell a, Cell b) {
+    return (a.x == b.x) || (a.y == b.y);
+}
+static inline int CellClusterAround(Cell c, int amnt, int space, int dist, Cell* output){
+
+  int num = 0;
+  for(int i = 0; i < amnt; i++){
+    Cell pt = random_direction();
+    int rdist = RandRange(1,dist);
+    Cell npt = CellInc(c,CellScale(pt,rdist));
+    for(int j = 0; j < i; j++)
+      if (cell_compare(output[j],npt)){
+        i--;
+        continue;
+      }
+
+    num++;
+    output[i]=npt;
+  }
+
+  return num;
+}
+
+static inline Cell rect_center(Rectangle r){
+  Cell out = {r.x + r.width/2, r.y + r.height/2};
+
+  return out;
+
+}
+
+static inline Cell cell_inc_rect(Cell c, Rectangle r){
+  Cell start = CellInc(CELL_NEW(r.x,r.y),CELL_NEW(r.width,r.height));
+
+  return CellInc(start, c);
+}
+//CARDINAL DIR (4 AXIS)
+static inline Cell cell_card_dir(Cell start, Cell end){
+  int tx = end.x;
+  int ty = end.y;
+  int sx = start.x;
+  int sy = start.y;
+
+  int ax = abs(tx - sx);
+  int ay = abs(ty - sy);
+
+  int dx =0, dy = 0;
+  if (ax > ay) {
+    dx = (tx > sx) - (tx < sx);
+    dy = 0;
+  } else {
+    dx = 0;
+    dy = (ty > sy) - (ty < sy);
+  }
+
+  return CELL_NEW(dx,dy);
+}
+//MOORE DI R (8 AXIS)
+static inline Cell cell_moore_dir(Cell start, Cell end) {
+  int dx = (end.x > start.x) - (end.x < start.x);
+  int dy = (end.y > start.y) - (end.y < start.y);
+  return CELL_NEW(dx, dy);
+}
+
+static bool is_adjacent(Cell c1, Cell c2)
+{
+  int x1 = c1.x;
+  int x2 = c2.x;
+  int y1 = c1.y;
+  int y2 = c2.y;
+  int dx = abs(x1 - x2);
+  int dy = abs(y1 - y2);
+
+  // Adjacent if exactly 1 step away horizontally or vertically
+  return (dx + dy == 1);
+}
+
+static inline float distance(int x1, int y1, int x2, int y2) {
+    int dx = x2 - x1;
+    int dy = y2 - y1;
+    return sqrtf(dx*dx + dy*dy);
+}
+
+static inline float frand() {
+    return (float)rand() / (float)RAND_MAX;
+}
+
+static inline Vector2 Vector2Avg(Vector2 a, Vector2 b){
+ return (Vector2){ (a.x + b.x) * 0.5f,
+                      (a.y + b.y) * 0.5f };
+}
+static inline Cell vec_to_cell(Vector2 v,float scale){
+  return CELL_NEW(v.x/scale,v.y/scale);
+}
+
+static inline Rectangle RectWorldToScreen(Rectangle r, float scale){
+  Vector2 pos = Vector2FromXY(r.x,r.y);
+  Vector2 size = Vector2FromXY(r.width,r.height);
+
+  pos = Vector2Scale(pos, scale);
+  size = Vector2Scale(size, scale);
+  return RECT_CELL(pos,size);
+}
+
+static inline Vector2 CellToVector2(Cell c, float scale){
+  Vector2 result = Vector2FromXY(c.x,c.y);
+
+  return Vector2Scale(result,scale);
+}
+static inline bool v2_compare(Vector2 v1,Vector2 v2){
+  return (v1.x==v2.x && v1.y==v2.y);
+}
+static inline float v2_ang_deg(Vector2 v){ return atan2(v.y,v.x)*180.0 /M_PI;}
+static inline float v2_ang(Vector2 v){ return atan2(v.y,v.x);}
+static inline float v2_len(Vector2 v){ return sqrtf(v.x*v.x + v.y*v.y); }
+static inline Vector2 v2_add(Vector2 a, Vector2 b){ return (Vector2){a.x+b.x,a.y+b.y}; }
+static inline Vector2 v2_sub(Vector2 a, Vector2 b){ return (Vector2){a.x-b.x,a.y-b.y}; }
+static inline Vector2 v2_scale(Vector2 a, float s){ return (Vector2){a.x*s,a.y*s}; }
+static inline Vector2 v2_norm_safe(Vector2 v){
+  float L = v2_len(v);
+  return (L > 1e-6f) ? v2_scale(v, 1.0f/L) : (Vector2){1,0};
+}
+
+static inline bool cell_in_rect(Cell p, Rectangle r){
+  return (p.x >= r.x && p.x <= r.x + r.width &&
+      p.y >= r.y && p.y <= r.y + r.height);
+}
+
+
+static inline bool point_in_rect(Vector2 p, Rectangle r){
+  return (p.x >= r.x && p.x <= r.x + r.width &&
+      p.y >= r.y && p.y <= r.y + r.height);
+}
+
+static inline Vector2 clamp_point_to_rect(Vector2 p, Rectangle r){
+  return (Vector2){
+    CLAMPV2(p.x, r.x, r.x + r.width),
+      CLAMPV2(p.y, r.y, r.y + r.height)
+  };
+}
+
+static inline Cell clamp_cell_to_bounds(Cell c, Rectangle r){
+  return (Cell){
+    CLAMPV2(c.x, r.x, r.x + r.width),
+      CLAMPV2(c.y, r.y, r.y + r.height)
+  };
+
+}
+
+static inline Cell cell_along_rect(Cell p, Rectangle r)
+{
+  int left   = (int)r.x;
+  int right  = (int)(r.x + r.width);
+  int top    = (int)r.y;
+  int bottom = (int)(r.y + r.height);
+
+  bool on_left   = (p.x == left  && p.y >= top && p.y <= bottom);
+  bool on_right  = (p.x == right && p.y >= top && p.y <= bottom);
+  bool on_top    = (p.y == top   && p.x >= left && p.x <= right);
+  bool on_bottom = (p.y == bottom&& p.x >= left && p.x <= right);
+
+  // Already along the rectangle → no displacement needed
+  if (on_left || on_right || on_top || on_bottom)
+    return (Cell){0,0};
+
+  // Otherwise: compute displacement to nearest edge
+  int dx_left   = p.x - left;
+  int dx_right  = p.x - right;
+  int dy_top    = p.y - top;
+  int dy_bottom = p.y - bottom;
+
+  // Choose the smallest absolute move
+  int best_dx = 0;
+  int best_dy = 0;
+
+  int best = abs(dx_left);
+  best_dx = -dx_left; // move horizontally toward left edge
+
+  if (abs(dx_right) < best) {
+    best = abs(dx_right);
+    best_dx = -dx_right; // move horizontally toward right edge
+    best_dy = 0;
+  }
+  if (abs(dy_top) < best) {
+    best = abs(dy_top);
+    best_dx = 0;
+    best_dy = -dy_top; // move vertically toward top
+  }
+  if (abs(dy_bottom) < best) {
+    best_dx = 0;
+    best_dy = -dy_bottom; // move vertically toward bottom
+  }
+
+  return (Cell){ best_dx, best_dy };
+
+}
+
+// Random unit vector (use your RNG if needed)
+static inline Vector2 rand_unit(){
+  float a = ((float)rand() / (float)RAND_MAX) * 6.28318530718f;
+  return (Vector2){cosf(a), sinf(a)};
+}
+
+static inline Rectangle clamp_rect_to_bounds(Rectangle r, Rectangle b){
+  Cell pos = clamp_cell_to_bounds(CELL_NEW(r.x,r.y),b);
+  Cell end = CellInc(pos,CELL_NEW(r.width,r.height));
+  Cell size = cell_dist(clamp_cell_to_bounds(end, b),pos);
+  return Rect(pos.x,pos.y,size.x,size.y);
+}
+
+static bool GetRectOverlap(Rectangle a, Rectangle b, Vector2 *overlap)
+{
+  bool result = true;  
+  float ax2 = a.x + a.width;
+  float ay2 = a.y + a.height;
+  float bx2 = b.x + b.width;
+  float by2 = b.y + b.height;
+
+  float ox = fminf(ax2, bx2) - fmaxf(a.x, b.x); // overlap width
+  float oy = fminf(ay2, by2) - fmaxf(a.y, b.y); // overlap height
+
+  if (ox <= 0.0f || oy <= 0.0f)
+    result =  false; // no overlap
+
+  if (overlap)
+  {
+    overlap->x = ox;
+    overlap->y = oy;
+  }
+
+  return result; // they overlap
+}
+
+static inline bool rect_contains_rect(Rect a, Rect b) {
+  return (b.x >= a.x) &&
+         (b.y >= a.y) &&
+         (b.x + b.width <= a.x + a.width) &&
+         (b.y + b.height <= a.y + a.height);
+}
+
+static void MakeTriangleFromRect(Rectangle r, Cell dir, Vector2 out[3]) {
+    float cx = r.x + r.width  * 0.5f;
+    float cy = r.y + r.height * 0.5f;
+
+    if(cell_compare(dir, CELL_UP)){
+      out[0] = (Vector2){ cx, r.y };                        // apex top center
+      out[1] = (Vector2){ r.x, r.y + r.height };            // bottom-left
+      out[2] = (Vector2){ r.x + r.width, r.y + r.height };  // bottom-right
+    }
+    if(cell_compare(dir, CELL_DOWN)){
+      out[0] = (Vector2){ cx, r.y + r.height };             // apex bottom center
+      out[1] = (Vector2){ r.x, r.y };                       // top-left
+      out[2] = (Vector2){ r.x + r.width, r.y };             // top-right
+    }
+    if(cell_compare(dir, CELL_LEFT)){
+      out[0] = (Vector2){ r.x, cy };                        // apex left center
+      out[1] = (Vector2){ r.x + r.width, r.y };             // top-right
+      out[2] = (Vector2){ r.x + r.width, r.y + r.height };  // bottom-right
+    }
+    if(cell_compare(dir, CELL_RIGHT)){
+      out[0] = (Vector2){ r.x + r.width, cy };              // apex right center
+      out[1] = (Vector2){ r.x, r.y };                       // top-left
+      out[2] = (Vector2){ r.x, r.y + r.height };            // bottom-left
+    }
+}
+
+
+static Cell float_to_ints(float v) {
+    Cell c;
+    c.x = (int)v;
+    c.y = (int)((v - c.x) * 10); // choose precision
+    return c;
+}
+
+static void CopyIf(int* dst, const int* src, size_t count, size_t cap, CompareFn cmp)
+{
+
+  int dst_size = 0;
+  for (size_t i = 0; i < count; i++)
+  {
+    if (cmp(src[i], dst[dst_size])){
+      dst[dst_size++] = i;
+      if(dst_size >= cap)
+        return;
+    }
+  }
+
+}
+#endif
