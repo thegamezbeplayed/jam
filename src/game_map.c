@@ -75,7 +75,6 @@ map_cell_t* InitMapCell(map_grid_t* m, Tiles t, Cell pos){
   mc->sprite = InitSpriteByID(t, SHEET_TILE);
   mc->sprite->pos = CellToVector2(pos, CELL_WIDTH);
 
-
   return mc;
 }
 

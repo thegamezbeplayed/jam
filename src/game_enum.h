@@ -89,6 +89,8 @@ typedef enum {
   DATA_ELEM,
   DATA_LEVEL,
   DATA_CD,
+  DATA_SPRITE,
+  DATA_SLICE,
   DATA_ALL,
 } DataType;
 
@@ -108,6 +110,19 @@ typedef enum{
   CHAR_UP_2,
   CHAR_DONE  
 }CharacterSprite;
+
+typedef enum{
+  VFX_EMPTY,
+  VFX_SHADOW_SQUARE,
+  VFX_SHADOW_OBLONG,
+  VFX_ALL
+}VFXSprite;
+
+typedef enum{
+  VFX_NONE,
+  VFX_SHAD,
+  VFX_DONE
+}VFXType;
 
 typedef enum{
   ANIM_SEQ_NONE,

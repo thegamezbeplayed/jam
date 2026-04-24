@@ -3,6 +3,7 @@
 #include "game_math.h"
 #include "game_tools.h"
 #include "screens.h"
+#include "vfx_assets.h"
 #include "character_asset.h"
 #include "tile_assets.h"
 
@@ -13,53 +14,84 @@ void InitAssetManager(int cap){
   AssMan.layers = GameCalloc("InitAssMan", 1, sizeof(layer_renderer_t));
 
   AssMan.tile_cap = MAX_SPRITES;
-  AssMan.tiles = GameCalloc("InitAssMan", MAX_SPRITES, sizeof(render_asset_t));
+  AssMan.tiles = GameCalloc("InitAssMan", MAX_SPRITES, sizeof(render_context_t));
 
   for(int i = 0; i < LAYER_DONE; i++)
-    HashInit(&AssMan.layers->sprites[i], next_pow2_int(cap*2));
+    HashInit(&AssMan.layers->context[i], next_pow2_int(cap*2));
 }
 
 void AssetAdd(sprite_t* s, RenderLayer l){
   AssMan.counts[l]++;
-  HashPut(&AssMan.layers->sprites[l], s->gouid, s);
+  
+  param_t ctx = ParamMakeObj(DATA_SPRITE, s->gouid, s);
+
+  render_context_t* sctx = GameCalloc("AssetAdd", 1, sizeof(render_context_t));
+  sctx->asset = ctx;
+  HashPut(&AssMan.layers->context[l], s->gouid, sctx);
+
+  if(!s->fx)
+    return;
+
+  RenderLayer r = l-1;
+
+  param_t fx = ParamMakeObj(DATA_SLICE, s->fx->gouid, s->fx);
+
+  render_context_t* vtx = GameCalloc("AssetAdd", 1, sizeof(render_context_t));
+  vtx->asset = fx;
+  HashPut(&AssMan.layers->context[r], s->fx->gouid,  vtx);
 
 }
 
 void AssetReset(void){
   for(int i = 0; i < LAYER_DONE; i++){
-    HashClear(&AssMan.layers->sprites[i]);
-    HashInit(&AssMan.layers->sprites[i], AssMan.layers->sprites[i].cap);
+    HashClear(&AssMan.layers->context[i]);
+    HashInit(&AssMan.layers->context[i], AssMan.layers->context[i].cap);
     AssMan.counts[i] = 0;
   }
 }
 
 void AssetAddTile(sprite_t* s){
-  render_asset_t* ass = &AssMan.tiles[AssMan.num_tiles++];
+  render_context_t* ctx = &AssMan.tiles[AssMan.num_tiles++];
 
-  ass->s = s;
+
+  ctx->asset = ParamMakeObj(DATA_SPRITE, s->gouid, s);
 }
 
 void AssetRender(void){
   for(int i = 0; i < AssMan.num_tiles; i++){
-    render_asset_t* ass = &AssMan.tiles[AssMan.num_tiles];
+    render_context_t* ctx = &AssMan.tiles[AssMan.num_tiles];
+    if(ctx->asset.type != DATA_SPRITE)
+      continue;
 
-    DrawSprite(ass->s);
+    sprite_t* sprite = ctx->asset.data;
+    DrawSprite(sprite);
 
   }
   hash_iter_t iter;  
   for(int i = 0; i < LAYER_DONE; i++){
-    HashStart(&AssMan.layers->sprites[i], &iter);
+    HashStart(&AssMan.layers->context[i], &iter);
 
     hash_slot_t* s;
     while ((s = HashNext(&iter))){
-      sprite_t* spr = s->value;
-      DrawSprite(spr);
+      render_context_t* ctx = s->value;
+      switch(ctx->asset.type){
+        case DATA_SLICE:
+          sprite_slice_t* sl = ctx->asset.data;
+          DrawSlice(sl, sl->pos, sl->rot);
+          break;
+        case DATA_SPRITE:
+          sprite_t* spr = ctx->asset.data;
+          DrawSprite(spr);
+          break;
+      }
+  
     }
   }
 }
 
 void InitResources(){
   TEXTURES[SHEET_CHAR] = CHAR_SPRITES;
+  TEXTURES[SHEET_TILE] = TILE_SPRITES;
   Image spritesImg = LoadImage(TextFormat("resources/%s",CHAR_IMAGE_PATH)); 
   SHEETS[SHEET_CHAR].sprite_sheet = GameMalloc("",sizeof(Texture2D));
   SpriteLoadSubTextures(CHAR_SPRITES,SHEET_CHAR,CHAR_DONE);
@@ -69,25 +101,12 @@ void InitResources(){
   SHEETS[SHEET_TILE].sprite_sheet = GameMalloc("",sizeof(Texture2D));
   SpriteLoadSubTextures(TILE_SPRITES,SHEET_TILE,TILE_DONE);
   *SHEETS[SHEET_TILE].sprite_sheet = LoadTextureFromImage(tilesImg);
-}
 
-sprite_t* InitSpriteByID(int id, SheetID s){
-  sprite_t* spr = GameCalloc("InitSprite", 1, sizeof(sprite_t));
-  sprite_sheet_data_t* data = &SHEETS[s];
-
-  for (int i = 0; i < data->num_sprites; i++){
-    if(data->sprites[i]->id != id)
-      continue;
-
-    spr->slice = data->sprites[i];
-    spr->root = data->sprites[i];
-    spr->sheet = data->sprite_sheet;
-
-    spr->is_visible = true;
-    spr->offset = spr->slice->offset;
-  }
-
-  return spr;
+  TEXTURES[SHEET_VFX] = VFX_SPRITES;
+  Image vfxImg = LoadImage(TextFormat("resources/%s",VFX_IMAGE_PATH)); 
+  SHEETS[SHEET_VFX].sprite_sheet = GameMalloc("",sizeof(Texture2D));
+  SpriteLoadSubTextures(VFX_SPRITES,SHEET_VFX,VFX_DONE);
+  *SHEETS[SHEET_VFX].sprite_sheet = LoadTextureFromImage(vfxImg);
 
 }
 
@@ -107,14 +126,71 @@ sprite_slice_t* InitSliceByID(int id, SheetID s){
 
 }
 
+sprite_slice_t* InitSpriteVfx(sprite_t* spr, texture_vfx_t vfx){
+
+  sprite_slice_t* fx = InitSliceByID(vfx.vfx_id, SHEET_VFX);
+
+  uint64_t key = GameObjectMakeUID("VFX", fx->id, spr->gouid);
+
+  fx->gouid = key;
+ 
+  Vector2 r_bounds = RectSize(spr->root->bounds);
+
+  Vector2 v_bounds = RectSize(fx->bounds);
+
+  float x = r_bounds.x / v_bounds.x;
+  float y = r_bounds.y / v_bounds.y;
+
+  fx->scale = fminf(x,y);
+
+  fx->scale *= vfx.scale;
+  fx->color = vfx.col;
+
+  fx->color.a*=0.67f;
+
+  fx->rot = vfx.rot;
+  Vector2 offset = Vector2XY(vfx.offx*r_bounds.x, vfx.offy * r_bounds.y);
+  fx->offset = RotateOffset(offset, vfx.rot);
+  return fx;
+}
+
+sprite_t* InitSpriteByID(int id, SheetID s){
+  sprite_t* spr = GameCalloc("InitSprite", 1, sizeof(sprite_t));
+  sprite_sheet_data_t* data = &SHEETS[s];
+
+  for (int i = 0; i < data->num_sprites; i++){
+    if(data->sprites[i]->id != id)
+      continue;
+
+    spr->slice = data->sprites[i];
+    spr->root = data->sprites[i];
+    spr->sheet = data->sprite_sheet;
+
+    spr->is_visible = true;
+    spr->offset = spr->slice->offset;
+    if(TEXTURES[s][i].vfx.vfx_id > VFX_NONE){
+      spr->fx = InitSpriteVfx(spr, TEXTURES[s][i].vfx);
+    }
+
+    return spr;
+  }
+
+  return NULL;
+
+}
+
+
+void SpriteSliceToggle(sprite_slice_t* s){
+}
+
 anim_t* InitAnim(int cap, float speed){
   anim_t* a = GameCalloc("InitAnim", 1, sizeof(anim_t));
 
   a->speed = speed;
-
   return a;
 
 }
+
 anim_player_t* InitAnimations(int id, int end, SheetID s){
   anim_player_t* a = GameCalloc("InitAnimations", 1, sizeof(anim_player_t));
   a->type = AT_SPRITE;
@@ -124,13 +200,15 @@ anim_player_t* InitAnimations(int id, int end, SheetID s){
     a->anims[a->num_seq++] = InitAnim(4,1);
 
   for (int i = 0; i < end; i++){
-    int seq = data[i].anim_seq;
+    int seq_index = 0;
+    anim_data_t adat = data[i].adat;
+    int seq = adat.anim_seq;
 
     CharacterSprite cindex = data[i].tag;
     if(cindex == CHAR_NONE)
       continue;
-    int seq_index = a->anims[seq]->num_seq++;
-    a->anims[seq]->duration = data[i].anim_dur;
+    seq_index = a->anims[seq]->num_seq++;
+    a->anims[seq]->duration = adat.anim_dur;
     a->anims[seq]->frames[seq_index] = cindex;
     sprite_slice_t* spr = InitSliceByID(cindex, s);
 
@@ -182,6 +260,10 @@ void SpriteSync(ent_t* e, sprite_t *spr){
   if(spr->state == ANIM_SEQ_NONE)
   spr->pos = CellToVector2(e->pos, CELL_WIDTH);
 
+  spr->slice->pos = spr->pos;
+  spr->root->pos = spr->pos;
+  if(spr->fx)
+    spr->fx->pos = spr->pos;
   if(spr->anim){
     sprite_slice_t* next = SpriteAnimate(spr);
     if(!next)
@@ -192,6 +274,8 @@ void SpriteSync(ent_t* e, sprite_t *spr){
 }
 
 void SpriteOnStateChange(sprite_t* spr, AnimSequence old, AnimSequence s){
+  if(!spr->anim)
+    return;
 }
 
 bool AnimSetSequence(anim_player_t* a, AnimSequence seq){
@@ -246,6 +330,7 @@ sprite_slice_t* SpriteAnimate(sprite_t *spr){
 
   int seq = spr->state;
   anim_t* a = spr->anim->anims[seq];
+  sprite_slice_t* cur = spr->anim->sequences[seq][a->cur_index];
   a->elapsed++;
   if(a->elapsed >= a->duration){
     a->cur_index++;
@@ -253,16 +338,20 @@ sprite_slice_t* SpriteAnimate(sprite_t *spr){
     if(a->on_end_seq)
       a->on_end_seq(spr->owner, spr);
 
+    if(a->on_end)
+      a->on_end(cur);
+
     if(a->cur_index >= a->num_seq){
       a->cur_index = 0;
       if(a->on_complete)
       a->on_complete(spr->owner, spr);
 
-
       SpriteSetState(spr, ANIM_SEQ_NONE);
     }
+    cur = spr->anim->sequences[seq][a->cur_index];
+    if(a->on_start)
+      a->on_start(cur);
   }
-  sprite_slice_t* cur = spr->anim->sequences[seq][a->cur_index];
 
   if(cur)
     return cur;
@@ -346,7 +435,6 @@ void SpriteAnimateTo(sprite_t *spr, Cell from, Cell to){
 
   spr->anim->anims[seq]->on_end_seq = SpriteLerp;
   spr->anim->anims[seq]->on_complete = SpriteSetOwnerGrid;
-  
 }
 
 void DrawTextExOutlined(Font font, const char *text, Vector2 pos, float fontSize, float spacing, Color textColor, Color outlineColor) {
@@ -362,12 +450,10 @@ void DrawTextExOutlined(Font font, const char *text, Vector2 pos, float fontSize
     DrawTextEx(font, text, pos, fontSize, spacing, textColor);
 }
 
-
-void DrawSlice(sprite_t *spr, Vector2 position,float rot){
-  sprite_slice_t* slice = spr->slice; 
+void DrawSlice(sprite_slice_t *slice, Vector2 position,float rot){
   Rectangle src = slice->bounds;
 
-  position = Vector2Add(position,spr->offset);
+  position = Vector2Add(position,slice->offset);
   Rectangle dst = {
     position.x,
     position.y,
@@ -380,7 +466,9 @@ void DrawSlice(sprite_t *spr, Vector2 position,float rot){
       slice->center.y * slice->scale//offset.y
   };
 
-  DrawTexturePro(*spr->sheet,src,dst, origin, rot, WHITE);
+  Texture sheet = *SHEETS[slice->sheet].sprite_sheet;
+  Color col = slice->color.a > 0? slice->color: WHITE; 
+  DrawTexturePro(sheet,src,dst, origin, rot, col);
 
   return;
 }
@@ -397,17 +485,19 @@ bool FreeSprite(sprite_t* s){
   free(s);
   return true;
 }
+
 void DrawSpriteAtPos(sprite_t*s , Vector2 pos){
   if(s->is_visible)
-    DrawSlice(s, pos, s->rot);
+    DrawSlice(s->slice, s->pos, s->rot);
 
 }
+
 void DrawSprite(sprite_t* s){
   if(!s->slice)
     return;
 
   if(s->is_visible)
-    DrawSlice(s, s->pos,s->rot);
+    DrawSlice(s->slice, s->pos, s->rot);
 }
 
 void SpriteLoadSubTextures(sub_texture_t* data, SheetID id, int sheet_cap){
@@ -420,6 +510,7 @@ void SpriteLoadSubTextures(sub_texture_t* data, SheetID id, int sheet_cap){
     sprite_slice_t *spr = GameMalloc("SpriteLoadSubTextures",sizeof(sprite_slice_t));
     memset(spr,0,sizeof(sprite_slice_t));
 
+    spr->sheet = id;
     spr->scale = sprData.scale == 0? 1: sprData.scale;
     spr->id = sprData.tag;
     spr->center = center;// Vector2Scale(offset,spr->scale);

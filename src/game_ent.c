@@ -130,6 +130,10 @@ TileStatus EntGridStep(ent_t *e, Cell step){
   Cell newPos = CellInc(e->pos,step);
 
   e->facing = step;
+
+  if(!SpriteCanAnimateTo(e->sprite, e->pos, newPos))
+    return TILE_TIMING;
+
   TileStatus status = MapSetOccupant(WorldGetMap(),e,newPos);
 
   if(status < TILE_ISSUES){

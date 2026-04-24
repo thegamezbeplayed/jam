@@ -541,6 +541,17 @@ static inline Vector2 v2_norm_safe(Vector2 v){
   return (L > 1e-6f) ? v2_scale(v, 1.0f/L) : (Vector2){1,0};
 }
 
+static Vector2 RotateOffset(Vector2 offset, float rot)
+{
+    float c = cosf(rot);
+    float s = sinf(rot);
+
+    return (Vector2){
+        offset.x * c - offset.y * s,
+        offset.x * s + offset.y * c
+    };
+}
+
 static inline bool cell_in_rect(Cell p, Rectangle r){
   return (p.x >= r.x && p.x <= r.x + r.width &&
       p.y >= r.y && p.y <= r.y + r.height);
